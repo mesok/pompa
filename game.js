@@ -29,6 +29,7 @@ function setCanvasDimensions() {
 
   canvas.style.width = canvas.width + 'px';
   canvas.style.height = canvas.height + 'px';
+  applyPlayerSize();
 }
 
 window.addEventListener('resize', () => {
@@ -62,6 +63,9 @@ const pipeSpeed = 2.6;
 const spawnInterval = 1650; // milliseconds
 const powerupSpawnInterval = 2000;
 const basePlayerSize = 150;
+const smallScreenPlayerScale = 0.6;
+const smallScreenWidthThreshold = 1550;
+const smallScreenHeightThreshold = 1000;
 const horizontalSpeed = 8;
 const horizontalDecay = 0.92;
 const celebrationDuration = 5000;
@@ -69,7 +73,8 @@ const teslaEffectDuration = 10000;
 const teslaDropFrequency = 5;
 const teslaGravityMultiplier = 0.5;
 const devOpsSpawnChance = 0.2;
-const devOpsHitboxScale = 0.7;
+const devOpsHitboxScale = 0.55;
+const powerupHitboxScale = 0.6;
 const playerHitboxScale = 0.6;
 const devOpsSpeedMin = 0.7;
 const devOpsSpeedMax = 2.2;
@@ -78,6 +83,8 @@ const levelGravityGrowth = 1.1; // +10% per level, compounded
 const lemonsPerLevel = 10;
 const levelLabelYMargin = 22;
 const defaultGameOverMessage = "Idi nahuy dolbaeb";
+const baseSpeedDisplayPercent = 10;
+const speedDisplayIncrementPercent = 10;
 
 const player = {
   x: 0,
@@ -87,6 +94,19 @@ const player = {
   velocityX: 0,
   velocityY: 0,
 };
+
+function getPlayerSize() {
+  const isSmallScreen =
+    window.innerWidth <= smallScreenWidthThreshold ||
+    window.innerHeight <= smallScreenHeightThreshold;
+  return basePlayerSize * (isSmallScreen ? smallScreenPlayerScale : 1);
+}
+
+function applyPlayerSize() {
+  const size = getPlayerSize();
+  player.width = size;
+  player.height = size;
+}
 
 function resetPlayer() {
   player.x = canvas.width * 0.2;
@@ -104,7 +124,6 @@ let powerups = [];
 let powerupTimer = 0;
 let celebrationMessage = "";
 let celebrationTimer = 0;
-let hasCelebrated = false;
 let gravityMultiplier = 1;
 let teslaEffectTimer = 0;
 let lemonDropsSpawned = 0;
@@ -216,17 +235,15 @@ setCanvasDimensions();
 resetPlayer();
 
 function resetGame() {
+  applyPlayerSize();
   resetPlayer();
   player.velocityY = 0;
-  player.width = basePlayerSize;
-  player.height = basePlayerSize;
   pipes = [];
   powerups = [];
   powerupTimer = 0;
   spawnTimer = 0;
   celebrationMessage = "";
   celebrationTimer = 0;
-  hasCelebrated = false;
   gravityMultiplier = 1;
   teslaEffectTimer = 0;
   lemonDropsSpawned = 0;
@@ -671,7 +688,11 @@ function spawnPowerup(type) {
   // Slightly larger lemons to be closer in size to the devOps trap
   const lemonSize = 65 + Math.random() * 45;
   const size =
-    type === "tesla" ? 70 : type === "devops" ? lemonSize * 1.3 : lemonSize;
+    type === "tesla"
+      ? 70
+      : type === "devops"
+      ? lemonSize * 1.04
+      : lemonSize;
   const speed =
     type === "tesla"
       ? 1 + Math.random() * 1.2
@@ -714,11 +735,6 @@ function collectPowerup(powerup) {
   score += 1;
   updateScoreUI();
   updateLevelByScore();
-  if (score >= 10 && !hasCelebrated) {
-    celebrationMessage = "Bravo boss bravooooo";
-    celebrationTimer = celebrationDuration;
-    hasCelebrated = true;
-  }
 }
 
 function drawBannerMessage(text) {
@@ -762,14 +778,9 @@ function getPlayerHitbox() {
 }
 
 function getPowerupHitbox(powerup) {
-  if (powerup.type !== "devops") {
-    return {
-      x: powerup.x,
-      y: powerup.y,
-      size: powerup.size,
-    };
-  }
-  const hitboxSize = powerup.size * devOpsHitboxScale;
+  const scale =
+    powerup.type === "devops" ? devOpsHitboxScale : powerupHitboxScale;
+  const hitboxSize = powerup.size * scale;
   const offset = (powerup.size - hitboxSize) / 2;
   return {
     x: powerup.x + offset,
@@ -784,6 +795,8 @@ function updateLevelByScore() {
     level = newLevel;
     levelGravityMultiplier =
       startingGravityScale * Math.pow(levelGravityGrowth, level - 1);
+    celebrationMessage = `Bravoo booss! Level ${level}`;
+    celebrationTimer = celebrationDuration;
   }
 }
 
@@ -810,8 +823,9 @@ function drawLevelIndicator() {
 }
 
 function drawSpeedIndicator() {
-  const speed = getEffectiveGravity();
-  const text = `Speed: ${speed.toFixed(3)}`;
+  const displaySpeedPercent =
+    baseSpeedDisplayPercent + (level - 1) * speedDisplayIncrementPercent;
+  const text = `Speed: ${displaySpeedPercent}%`;
   ctx.save();
   const fontSize = Math.max(14, Math.min(26, canvas.width * 0.025, canvas.height * 0.03));
   ctx.font = `${fontSize}px Roboto, sans-serif`;
