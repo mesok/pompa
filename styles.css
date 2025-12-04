@@ -1,0 +1,74 @@
+:root {
+  font-family: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #fff;
+  background: #010913;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-size: 1.1rem;
+  min-height: 100vh;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at top, #0f2742, #000915 70%);
+}
+
+.game-shell {
+  width: min(960px, 100vw);
+  padding: 2.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
+}
+
+.hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.scoreboard {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 1.7rem;
+}
+
+#restartButton {
+  background: #ff8c42;
+  color: #051018;
+  border: none;
+  border-radius: 999px;
+  padding: 0.75rem 2.25rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 150ms ease, opacity 150ms ease;
+}
+
+#restartButton:hover {
+  opacity: 0.85;
+}
+
+#restartButton:active {
+  transform: scale(0.96);
+}
+
+#gameCanvas {
+  width: 100%;
+  height: auto;
+  border-radius: 24px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  background: linear-gradient(#5dc1f2, #38a1d1);
+}
+
+.hint {
+  text-align: center;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 1.425rem;
+}
