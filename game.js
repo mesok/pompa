@@ -4,6 +4,56 @@ const restartBtn = document.getElementById("restartButton");
 const scoreEl = document.getElementById("score");
 const bestScoreEl = document.getElementById("bestScore");
 
+function setCanvasDimensions() {
+  const hud = document.querySelector('.hud');
+  const hint = document.querySelector('.hint');
+
+  const hudHeight = hud ? hud.offsetHeight : 60;
+  const hintHeight = hint ? hint.offsetHeight : 40;
+  const padding = 20;
+
+  const availableHeight = window.innerHeight - hudHeight - hintHeight - padding;
+  const availableWidth = window.innerWidth - padding;
+
+  const aspectRatio = 1200 / 1400;
+  let canvasWidth = Math.min(availableWidth, 960);
+  let canvasHeight = canvasWidth / aspectRatio;
+
+  if (canvasHeight > availableHeight) {
+    canvasHeight = availableHeight;
+    canvasWidth = canvasHeight * aspectRatio;
+  }
+
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
+
+  canvas.style.width = canvas.width + 'px';
+  canvas.style.height = canvas.height + 'px';
+}
+
+window.addEventListener('resize', () => {
+  setCanvasDimensions();
+  resetPlayer();
+  regenerateClouds();
+});
+
+function regenerateClouds() {
+  clouds.length = 0;
+  cloudAnimation.currentFrames.clear();
+  cloudAnimation.lastUpdate.clear();
+
+  for (let i = 0; i < 6; i += 1) {
+    clouds.push(
+      createCloud({
+        existing: clouds,
+      })
+    );
+    // Initialize animation tracking for each new cloud
+    cloudAnimation.currentFrames.set(i, 0);
+    cloudAnimation.lastUpdate.set(i, 0);
+  }
+}
+
 const gravity = 0.35;
 const flapStrength = -10;
 const pipeGap = 650;
@@ -20,6 +70,7 @@ const teslaDropFrequency = 5;
 const teslaGravityMultiplier = 0.5;
 const devOpsSpawnChance = 0.2;
 const devOpsHitboxScale = 0.7;
+const playerHitboxScale = 0.6;
 const devOpsSpeedMin = 0.7;
 const devOpsSpeedMax = 2.2;
 const startingGravityScale = 0.8; // 20% slower than current base at level 1
@@ -29,13 +80,18 @@ const levelLabelYMargin = 22;
 const defaultGameOverMessage = "Idi nahuy dolbaeb";
 
 const player = {
-  x: 500,
-  y: canvas.height / 2,
+  x: 0,
+  y: 0,
   width: basePlayerSize,
   height: basePlayerSize,
   velocityX: 0,
   velocityY: 0,
 };
+
+function resetPlayer() {
+  player.x = canvas.width * 0.2;
+  player.y = canvas.height / 2;
+}
 
 let lastFrame = 0;
 let spawnTimer = 0;
@@ -69,12 +125,41 @@ costumeImage.onerror = () => {
 const backgroundImage = new Image();
 backgroundImage.src = "assets/ivo.gif";
 let backgroundLoaded = false;
+
+// Animation properties for the GIF
+const cloudAnimation = {
+  frameTime: 100, // 100ms per frame (10 fps)
+  frames: [],
+  currentFrames: new Map(), // Track current frame per cloud
+  lastUpdate: new Map(), // Track last update time per cloud
+  totalFrames: 8 // Estimate based on typical GIF frame count
+};
+
 backgroundImage.onload = () => {
   backgroundLoaded = true;
+  initializeCloudAnimations();
 };
 backgroundImage.onerror = () => {
   console.warn("Unable to load background image, keeping gradient.");
 };
+
+function initializeCloudAnimations() {
+  // Initialize frame tracking for all existing clouds
+  clouds.forEach((cloud, index) => {
+    cloudAnimation.currentFrames.set(index, 0);
+    cloudAnimation.lastUpdate.set(index, 0);
+  });
+}
+
+function updateCloudFrame(cloudIndex, currentTime) {
+  const lastUpdate = cloudAnimation.lastUpdate.get(cloudIndex) || 0;
+
+  if (currentTime - lastUpdate >= cloudAnimation.frameTime) {
+    const currentFrame = (cloudAnimation.currentFrames.get(cloudIndex) || 0) + 1;
+    cloudAnimation.currentFrames.set(cloudIndex, currentFrame % cloudAnimation.totalFrames);
+    cloudAnimation.lastUpdate.set(cloudIndex, currentTime);
+  }
+}
 
 const gameOverImage = new Image();
 gameOverImage.src = "assets/tryAgain.png";
@@ -127,8 +212,11 @@ for (let i = 0; i < 6; i += 1) {
 
 bestScoreEl.textContent = bestScore;
 
+setCanvasDimensions();
+resetPlayer();
+
 function resetGame() {
-  player.y = canvas.height / 2;
+  resetPlayer();
   player.velocityY = 0;
   player.width = basePlayerSize;
   player.height = basePlayerSize;
@@ -218,20 +306,34 @@ function update(delta) {
   if (Math.abs(player.velocityX) < 0.05) player.velocityX = 0;
   player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
 
-  if (player.y + player.height >= canvas.height) {
+  const playerHitbox = getPlayerHitbox();
+  if (playerHitbox.y + playerHitbox.height >= canvas.height) {
     endGame();
+  }
+
+  // Check top boundary collision
+  if (player.y <= 0) {
+    player.velocityY = Math.abs(player.velocityY) * 0.8; // Bounce down
+    player.y = 0; // Keep player at the top edge
+
+    // Add a little kick to prevent getting stuck
+    if (Math.abs(player.velocityY) < 1) {
+      player.velocityY = 2;
+    }
   }
  
   powerups.forEach((powerup) => {
     powerup.y += powerup.speed * dt;
     powerup.rotation += powerup.rotationSpeed * dt;
 
+    const playerHitbox = getPlayerHitbox();
     const hitbox = getPowerupHitbox(powerup);
+
     if (
-      player.x < hitbox.x + hitbox.size &&
-      player.x + player.width > hitbox.x &&
-      player.y < hitbox.y + hitbox.size &&
-      player.y + player.height > hitbox.y
+      playerHitbox.x < hitbox.x + hitbox.size &&
+      playerHitbox.x + playerHitbox.width > hitbox.x &&
+      playerHitbox.y < hitbox.y + hitbox.size &&
+      playerHitbox.y + playerHitbox.height > hitbox.y
     ) {
       collectPowerup(powerup);
     }
@@ -241,16 +343,18 @@ function update(delta) {
     (powerup) => !powerup.collected && powerup.y < canvas.height + powerup.size
   );
 
-  clouds.forEach((cloud) => {
+  clouds.forEach((cloud, index) => {
     cloud.x -= cloud.speed * dt;
     if (cloud.x + cloud.size < 0) {
-      Object.assign(
-        cloud,
-        createCloud({
-          initialX: canvas.width + Math.random() * 200,
-          existing: clouds.filter((c) => c !== cloud),
-        })
-      );
+      const newCloud = createCloud({
+        initialX: canvas.width + Math.random() * 200,
+        existing: clouds.filter((c) => c !== cloud),
+      });
+      Object.assign(cloud, newCloud);
+
+      // Reset animation for recycled cloud
+      cloudAnimation.currentFrames.set(index, 0);
+      cloudAnimation.lastUpdate.set(index, performance.now());
     }
   });
 }
@@ -267,12 +371,13 @@ function spawnPipe() {
 }
 
 function checkCollision(pipe) {
+  const playerHitbox = getPlayerHitbox();
   const inPipeX =
-    player.x + player.width > pipe.x && player.x < pipe.x + pipeWidth;
+    playerHitbox.x + playerHitbox.width > pipe.x && playerHitbox.x < pipe.x + pipeWidth;
   if (!inPipeX) return false;
 
-  const hitsUpper = player.y < pipe.gapTop;
-  const hitsLower = player.y + player.height > pipe.gapTop + pipeGap;
+  const hitsUpper = playerHitbox.y < pipe.gapTop;
+  const hitsLower = playerHitbox.y + playerHitbox.height > pipe.gapTop + pipeGap;
   return hitsUpper || hitsLower;
 }
 
@@ -321,8 +426,39 @@ function drawBackground() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   if (backgroundLoaded) {
-    clouds.forEach((cloud) => {
+    const currentTime = performance.now();
+    clouds.forEach((cloud, index) => {
+      // Update animation frame for this cloud
+      updateCloudFrame(index, currentTime);
+
+      ctx.save();
       ctx.globalAlpha = 0.55;
+
+      // Create elliptical clipping path
+      ctx.beginPath();
+      ctx.ellipse(
+        cloud.x + cloud.size / 2,
+        cloud.y + (cloud.size * 0.6) / 2,
+        cloud.size / 2,
+        (cloud.size * 0.6) / 2,
+        0,
+        0,
+        Math.PI * 2
+      );
+      ctx.clip();
+
+      // Apply rotation based on current frame to simulate animation
+      const currentFrame = cloudAnimation.currentFrames.get(index) || 0;
+      const rotationOffset = (currentFrame / cloudAnimation.totalFrames) * Math.PI * 2;
+      const smallScale = 0.95 + (Math.sin(currentFrame * 0.3) * 0.05); // Slight scale variation
+
+      ctx.save();
+      ctx.translate(cloud.x + cloud.size / 2, cloud.y + (cloud.size * 0.6) / 2);
+      ctx.rotate(rotationOffset * 0.1); // Gentle rotation
+      ctx.scale(smallScale, smallScale);
+      ctx.translate(-(cloud.x + cloud.size / 2), -(cloud.y + (cloud.size * 0.6) / 2));
+
+      // Draw the image within the elliptical mask with transformations
       ctx.drawImage(
         backgroundImage,
         cloud.x,
@@ -330,7 +466,25 @@ function drawBackground() {
         cloud.size,
         cloud.size * 0.6
       );
-      ctx.globalAlpha = 1;
+
+      ctx.restore();
+
+      // Add a subtle edge highlight for the oval shape
+      ctx.beginPath();
+      ctx.ellipse(
+        cloud.x + cloud.size / 2,
+        cloud.y + (cloud.size * 0.6) / 2,
+        cloud.size / 2,
+        (cloud.size * 0.6) / 2,
+        0,
+        0,
+        Math.PI * 2
+      );
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+      ctx.lineWidth = Math.max(1, cloud.size * 0.02);
+      ctx.stroke();
+
+      ctx.restore();
     });
   }
 
@@ -399,15 +553,16 @@ function drawPlayer() {
 }
 
 function drawMessage(text, { withBackground = true } = {}) {
-  ctx.font = "60px Roboto, sans-serif";
+  const baseFontSize = Math.max(24, Math.min(60, canvas.width * 0.05, canvas.height * 0.08));
+  ctx.font = `${baseFontSize}px Roboto, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  const paddingX = 40;
-  const paddingY = 25;
+  const paddingX = canvas.width * 0.04;
+  const paddingY = canvas.height * 0.02;
   const metrics = ctx.measureText(text);
   const textHeight =
-    metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent || 60;
+    metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent || baseFontSize;
   const rectWidth = metrics.width + paddingX * 2;
   const rectHeight = textHeight + paddingY * 2;
   const rectX = canvas.width / 2 - rectWidth / 2;
@@ -415,7 +570,7 @@ function drawMessage(text, { withBackground = true } = {}) {
 
   if (withBackground) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
-    ctx.roundRect(rectX, rectY, rectWidth, rectHeight, 20);
+    ctx.roundRect(rectX, rectY, rectWidth, rectHeight, Math.max(10, canvas.width * 0.02));
     ctx.fill();
   }
 
@@ -470,8 +625,11 @@ window.addEventListener("keydown", (event) => {
 drawFrame(0);
 
 function createCloud({ initialX, existing = [] } = {}) {
+  const baseSize = Math.min(canvas.width, canvas.height) * 0.15;
+  const sizeVariation = baseSize * 0.7;
+
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const size = 140 + Math.random() * 160;
+    const size = baseSize + Math.random() * sizeVariation;
     const candidate = {
       x:
         attempt === 0 && typeof initialX === "number"
@@ -488,7 +646,7 @@ function createCloud({ initialX, existing = [] } = {}) {
   return {
     x: Math.random() * canvas.width,
     y: Math.random() * canvas.height * 0.3,
-    size: 140 + Math.random() * 160,
+    size: baseSize + Math.random() * sizeVariation,
     speed: 0.2 + Math.random() * 0.4,
   };
 }
@@ -565,13 +723,14 @@ function collectPowerup(powerup) {
 
 function drawBannerMessage(text) {
   ctx.save();
-  ctx.font = "48px Roboto, sans-serif";
+  const fontSize = Math.max(20, Math.min(48, canvas.width * 0.04, canvas.height * 0.06));
+  ctx.font = `${fontSize}px Roboto, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#ffd74a";
   ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
-  ctx.shadowBlur = 12;
-  ctx.fillText(text, canvas.width / 2, 80);
+  ctx.shadowBlur = Math.max(5, canvas.width * 0.01);
+  ctx.fillText(text, canvas.width / 2, Math.max(40, canvas.height * 0.1));
   ctx.shadowBlur = 0;
   ctx.restore();
 }
@@ -587,6 +746,19 @@ function activateTeslaEffect() {
 
 function getEffectiveGravity() {
   return gravity * levelGravityMultiplier * gravityMultiplier;
+}
+
+function getPlayerHitbox() {
+  const hitboxWidth = player.width * playerHitboxScale;
+  const hitboxHeight = player.height * playerHitboxScale;
+  const offsetX = (player.width - hitboxWidth) / 2;
+  const offsetY = (player.height - hitboxHeight) / 2;
+  return {
+    x: player.x + offsetX,
+    y: player.y + offsetY,
+    width: hitboxWidth,
+    height: hitboxHeight,
+  };
 }
 
 function getPowerupHitbox(powerup) {
@@ -618,20 +790,20 @@ function updateLevelByScore() {
 function drawLevelIndicator() {
   const text = `Current Level ${level}`;
   ctx.save();
-  ctx.font = "36px Roboto, sans-serif";
+  const fontSize = Math.max(16, Math.min(36, canvas.width * 0.03, canvas.height * 0.04));
+  ctx.font = `${fontSize}px Roboto, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   const metrics = ctx.measureText(text);
   const textHeight =
-    metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent || 36;
-  const paddingX = 24;
-  const paddingY = 12;
+    metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent || fontSize;
+  const paddingY = canvas.height * 0.01;
   const rectHeight = textHeight + paddingY * 2;
   const textY = canvas.height - rectHeight - levelLabelYMargin + rectHeight / 2;
 
   ctx.fillStyle = "#0a2236";
   ctx.shadowColor = "rgba(255, 221, 74, 0.4)";
-  ctx.shadowBlur = 10;
+  ctx.shadowBlur = Math.max(4, canvas.width * 0.01);
   ctx.fillText(text, canvas.width / 2, textY);
   ctx.shadowBlur = 0;
   ctx.restore();
@@ -641,13 +813,14 @@ function drawSpeedIndicator() {
   const speed = getEffectiveGravity();
   const text = `Speed: ${speed.toFixed(3)}`;
   ctx.save();
-  ctx.font = "26px Roboto, sans-serif";
+  const fontSize = Math.max(14, Math.min(26, canvas.width * 0.025, canvas.height * 0.03));
+  ctx.font = `${fontSize}px Roboto, sans-serif`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#0a2236";
   ctx.shadowColor = "rgba(255, 221, 74, 0.35)";
-  ctx.shadowBlur = 8;
-  const padding = 16;
+  ctx.shadowBlur = Math.max(3, canvas.width * 0.008);
+  const padding = canvas.width * 0.015;
   ctx.fillText(text, padding, canvas.height - levelLabelYMargin - 8);
   ctx.shadowBlur = 0;
   ctx.restore();
@@ -658,13 +831,14 @@ function drawTeslaTimer() {
   const secondsLeft = Math.max(0, Math.ceil(teslaEffectTimer / 1000));
   const text = `Tesla: ${secondsLeft}s`;
   ctx.save();
-  ctx.font = "26px Roboto, sans-serif";
+  const fontSize = Math.max(14, Math.min(26, canvas.width * 0.025, canvas.height * 0.03));
+  ctx.font = `${fontSize}px Roboto, sans-serif`;
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#0a2236";
   ctx.shadowColor = "rgba(255, 221, 74, 0.35)";
-  ctx.shadowBlur = 8;
-  const padding = 16;
+  ctx.shadowBlur = Math.max(3, canvas.width * 0.008);
+  const padding = canvas.width * 0.015;
   ctx.fillText(text, canvas.width - padding, canvas.height - levelLabelYMargin - 8);
   ctx.shadowBlur = 0;
   ctx.restore();
