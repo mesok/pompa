@@ -1,6 +1,7 @@
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 const restartBtn = document.getElementById("restartButton");
+const resetBestBtn = document.getElementById("resetBestButton");
 const scoreEl = document.getElementById("score");
 const bestScoreEl = document.getElementById("bestScore");
 
@@ -16,7 +17,8 @@ function setCanvasDimensions() {
   const availableWidth = window.innerWidth - padding;
 
   const aspectRatio = 1200 / 1400;
-  let canvasWidth = Math.min(availableWidth, 960);
+  const widthScale = 1.5; // widen canvas by 30% versus previous cap
+  let canvasWidth = Math.min(availableWidth, 960 * widthScale);
   let canvasHeight = canvasWidth / aspectRatio;
 
   if (canvasHeight > availableHeight) {
@@ -73,6 +75,10 @@ const teslaEffectDuration = 10000;
 const teslaDropFrequency = 5;
 const teslaGravityMultiplier = 0.5;
 const devOpsSpawnChance = 0.2;
+const devOpsUnlockLemonCount = 3;
+const spawnSlowFallDuration = 2000;
+const spawnSlowFallMultiplier = 0.5;
+const startSpeedMultiplier = 0.7; // 30% slower on level 1
 const devOpsHitboxScale = 0.55;
 const powerupHitboxScale = 0.6;
 const playerHitboxScale = 0.6;
@@ -110,7 +116,7 @@ function applyPlayerSize() {
 
 function resetPlayer() {
   player.x = canvas.width * 0.2;
-  player.y = canvas.height / 2;
+  player.y = canvas.height * 0.15;
 }
 
 let lastFrame = 0;
@@ -130,6 +136,7 @@ let lemonDropsSpawned = 0;
 let level = 1;
 let levelGravityMultiplier = startingGravityScale;
 let gameOverMessage = defaultGameOverMessage;
+let spawnSlowFallTimer = 0;
 
 const costumeImage = new Image();
 costumeImage.src = "assets/player.png";
@@ -160,6 +167,20 @@ backgroundImage.onload = () => {
 };
 backgroundImage.onerror = () => {
   console.warn("Unable to load background image, keeping gradient.");
+};
+
+const startBackgroundImage = new Image();
+startBackgroundImage.src = "assets/loading.png";
+let startBackgroundLoaded = false;
+startBackgroundImage.onload = () => {
+  startBackgroundLoaded = true;
+  // Redraw the start screen once the image finishes loading
+  if (!isRunning && !gameOver) {
+    drawFrame(0);
+  }
+};
+startBackgroundImage.onerror = () => {
+  console.warn("Unable to load start screen image.");
 };
 
 function initializeCloudAnimations() {
@@ -252,6 +273,7 @@ function resetGame() {
   gameOverMessage = defaultGameOverMessage;
   score = 0;
   gameOver = false;
+  spawnSlowFallTimer = spawnSlowFallDuration;
   updateScoreUI();
   drawFrame(0);
 }
@@ -289,26 +311,33 @@ function loop(timestamp) {
 }
 
 function update(delta) {
-  powerupTimer += delta;
+  const speedMultiplier = getSpeedMultiplier();
+  const scaledDelta = delta * speedMultiplier;
+
+  powerupTimer += scaledDelta;
   if (powerupTimer > powerupSpawnInterval) {
     spawnPowerup();
     powerupTimer = 0;
   }
 
   // Normalize movement to a 60fps baseline so physics are framerate-independent
-  const dt = delta / (1000 / 60);
+  const dt = scaledDelta / (1000 / 60);
   const effectiveGravity = getEffectiveGravity();
 
   if (teslaEffectTimer > 0) {
-    teslaEffectTimer -= delta;
+    teslaEffectTimer -= scaledDelta;
     if (teslaEffectTimer <= 0) {
       teslaEffectTimer = 0;
       gravityMultiplier = 1;
     }
   }
+  if (spawnSlowFallTimer > 0) {
+    spawnSlowFallTimer -= delta;
+    if (spawnSlowFallTimer < 0) spawnSlowFallTimer = 0;
+  }
 
   if (celebrationTimer > 0) {
-    celebrationTimer -= delta;
+    celebrationTimer -= scaledDelta;
     if (celebrationTimer <= 0) {
       celebrationTimer = 0;
       celebrationMessage = "";
@@ -404,30 +433,34 @@ function updateScoreUI() {
 
 function drawFrame() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  drawBackground();
+  if (!isRunning && !gameOver) {
+    drawStartBackground();
+  } else {
+    drawBackground();
+  }
   if (gameOver && !isRunning && gameOverImageLoaded) {
     ctx.save();
     ctx.globalAlpha = 0.9;
     ctx.drawImage(gameOverImage, 0, 0, canvas.width, canvas.height);
     ctx.restore();
   }
-  drawPipes();
-  drawPowerups();
-  drawPlayer();
-  if (!gameOver) {
+  if (isRunning || gameOver) {
+    drawPipes();
+    drawPowerups();
+    drawPlayer();
+  }
+  if (!gameOver && isRunning) {
     drawLevelIndicator();
     drawSpeedIndicator();
     drawTeslaTimer();
   }
 
-  if (!isRunning && !gameOver) {
-    drawMessage("Click Play or press Space to start", {
-      withBackground: false,
-    });
-  }
-
   if (gameOver && !isRunning) {
     drawMessage(gameOverMessage);
+    drawGameOverScore();
+    drawGameOverHint();
+  } else if (!isRunning && !gameOver) {
+    drawStartHeading();
   }
 
   if (celebrationTimer > 0 && celebrationMessage) {
@@ -507,6 +540,61 @@ function drawBackground() {
 
   ctx.fillStyle = "#3abf5a";
   ctx.fillRect(0, canvas.height - 40, canvas.width, 40);
+}
+
+function drawStartBackground() {
+  // Show the loading screen artwork when waiting to start
+  if (startBackgroundLoaded) {
+    ctx.save();
+    // Draw image at its native size, centered
+    const drawWidth = startBackgroundImage.width;
+    const drawHeight = startBackgroundImage.height;
+    const drawX = (canvas.width - drawWidth) / 2;
+    const drawY = (canvas.height - drawHeight) / 2;
+
+    ctx.drawImage(startBackgroundImage, drawX, drawY, drawWidth, drawHeight);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = "#111";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+function drawStartHeading() {
+  const text = "POMPATA THE GAME";
+  const subText = "Ela 'Click' Space";
+  ctx.save();
+  let fontSize = Math.max(48, Math.min(canvas.width * 0.12, canvas.height * 0.18));
+  ctx.font = `900 ${fontSize}px Roboto, sans-serif`;
+  // Reduce font size if it would overflow horizontally
+  const maxWidth = canvas.width * 0.9;
+  while (ctx.measureText(text).width > maxWidth && fontSize > 24) {
+    fontSize *= 0.9;
+    ctx.font = `900 ${fontSize.toFixed(2)}px Roboto, sans-serif`;
+  }
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = Math.max(6, fontSize * 0.1);
+  const x = canvas.width / 2;
+  const y = canvas.height * 0.60;
+  ctx.strokeStyle = "#fff";
+  ctx.fillStyle = "#d62828";
+  ctx.strokeText(text, x, y);
+  ctx.fillText(text, x, y);
+
+  // Subheading at 50% of the title size, matching style
+  let subFontSize = fontSize * 0.5;
+  ctx.font = `900 ${subFontSize}px Roboto, sans-serif`;
+  while (ctx.measureText(subText).width > maxWidth && subFontSize > 16) {
+    subFontSize *= 0.95;
+    ctx.font = `900 ${subFontSize.toFixed(2)}px Roboto, sans-serif`;
+  }
+  ctx.lineWidth = Math.max(3, subFontSize * 0.1);
+  const subY = y + fontSize * 0.8;
+  ctx.strokeText(subText, x, subY);
+  ctx.fillText(subText, x, subY);
+
+  ctx.restore();
 }
 
 function drawPipes() {
@@ -597,8 +685,73 @@ function drawMessage(text, { withBackground = true } = {}) {
   ctx.textBaseline = "alphabetic";
 }
 
+function drawGameOverScore() {
+  const text = `Колко буенота е изял Помпата: ${score}`;
+  ctx.save();
+  // Scale with screen size while keeping the size moderate
+  const fontSize = Math.max(20, Math.min(44, canvas.width * 0.04, canvas.height * 0.06));
+  ctx.font = `bold ${fontSize}px Roboto, sans-serif`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+  ctx.shadowBlur = Math.max(6, canvas.width * 0.015);
+  const yOffset = fontSize * 0.9 + 20; // push below the main game-over text to avoid overlap
+
+  // Split prefix and score so we can tint the score separately
+  const prefix = "Колко буенота е изял Помпата: ";
+  const scoreText = `${score}`;
+
+  const prefixWidth = ctx.measureText(prefix).width;
+  const scoreWidth = ctx.measureText(scoreText).width;
+  const totalWidth = prefixWidth + scoreWidth;
+  const xStart = canvas.width / 2 - totalWidth / 2;
+  const yPos = canvas.height / 2 + yOffset;
+
+  ctx.lineWidth = Math.max(2, fontSize * 0.08);
+
+  ctx.strokeStyle = "#fff";
+  ctx.fillStyle = "#d62828";
+  ctx.strokeText(prefix, xStart, yPos);
+  ctx.fillText(prefix, xStart, yPos);
+
+  ctx.strokeStyle = "#fff";
+  ctx.fillStyle = "#ffd60a";
+  ctx.strokeText(scoreText, xStart + prefixWidth, yPos);
+  ctx.fillText(scoreText, xStart + prefixWidth, yPos);
+
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+function drawGameOverHint() {
+  const text = "Натисни 'Ентер' за Аммм амм Аммм";
+  ctx.save();
+  // Scale message size with screen width so it remains readable on all devices
+  const fontSize = Math.max(18, Math.min(42, canvas.width * 0.04));
+  ctx.font = `${fontSize}px Roboto, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+  const paddingX = canvas.width * 0.03;
+  const paddingY = canvas.height * 0.015;
+  const metrics = ctx.measureText(text);
+  const textHeight =
+    metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent || fontSize;
+  const rectWidth = metrics.width + paddingX * 2;
+  const rectHeight = textHeight + paddingY * 2;
+  const rectX = canvas.width / 2 - rectWidth / 2;
+  const rectY = 20;
+
+  ctx.roundRect(rectX, rectY, rectWidth, rectHeight, Math.max(8, canvas.width * 0.015));
+  ctx.fill();
+
+  ctx.fillStyle = "#fff";
+  ctx.fillText(text, canvas.width / 2, rectY + rectHeight / 2);
+  ctx.restore();
+}
+
 function flap() {
-  if (!isRunning) {
+  if (!isRunning && !gameOver) {
     startGame();
   }
   if (!gameOver) {
@@ -607,13 +760,17 @@ function flap() {
 }
 
 restartBtn.addEventListener("click", () => {
-  if (gameOver) {
-    startGame();
-  } else if (!isRunning) {
-    startGame();
-  } else {
+  if (isRunning) {
     resetGame();
+  } else if (!gameOver) {
+    startGame();
   }
+});
+
+resetBestBtn.addEventListener("click", () => {
+  bestScore = 0;
+  bestScoreEl.textContent = bestScore;
+  localStorage.setItem("flappyCostumeBest", bestScore);
 });
 
 window.addEventListener("keydown", (event) => {
@@ -626,8 +783,11 @@ window.addEventListener("keydown", (event) => {
   } else if (event.code === "ArrowRight" || event.code === "KeyD") {
     event.preventDefault();
     moveHorizontal(1);
-  } else if (event.code === "Enter" && gameOver) {
-    startGame();
+  } else if (event.code === "Enter" || event.code === "NumpadEnter") {
+    event.preventDefault();
+    if (!isRunning) {
+      startGame();
+    }
   }
 });
 
@@ -683,7 +843,8 @@ function cloudsOverlap(a, b) {
 
 function spawnPowerup(type) {
   if (!type) {
-    type = Math.random() < devOpsSpawnChance ? "devops" : "lemon";
+    const devOpsUnlocked = lemonDropsSpawned >= devOpsUnlockLemonCount;
+    type = devOpsUnlocked && Math.random() < devOpsSpawnChance ? "devops" : "lemon";
   }
   // Slightly larger lemons to be closer in size to the devOps trap
   const lemonSize = 65 + Math.random() * 45;
@@ -761,7 +922,12 @@ function activateTeslaEffect() {
 }
 
 function getEffectiveGravity() {
-  return gravity * levelGravityMultiplier * gravityMultiplier;
+  const spawnMultiplier = spawnSlowFallTimer > 0 ? spawnSlowFallMultiplier : 1;
+  return gravity * levelGravityMultiplier * gravityMultiplier * spawnMultiplier;
+}
+
+function getSpeedMultiplier() {
+  return level === 1 ? startSpeedMultiplier : 1;
 }
 
 function getPlayerHitbox() {

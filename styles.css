@@ -48,7 +48,13 @@ body {
   font-size: 1.2rem;
 }
 
-#restartButton {
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.hud button {
   background: #ff8c42;
   color: #051018;
   border: none;
@@ -61,11 +67,11 @@ body {
   flex-shrink: 0;
 }
 
-#restartButton:hover {
+.hud button:hover {
   opacity: 0.85;
 }
 
-#restartButton:active {
+.hud button:active {
   transform: scale(0.96);
 }
 
